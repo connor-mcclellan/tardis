@@ -131,11 +131,11 @@ class ConvergencePlots:
         fig = fig.update_layout(
             xaxis={
                 "tickformat": "g",
-                "title": r"$\text{Velocity}~[\text{km}~\text{s}^{-1}]$",
+                "title": r"$\text{Radius}\ [\text{cm}]$",
             },
             xaxis2={
                 "tickformat": "g",
-                "title": r"$\text{Velocity}~[\text{km}~\text{s}^{-1}]$",
+                "title": r"$\text{Radius}\ [\text{cm}]$",
                 "matches": "x",
             },
             yaxis={
@@ -297,10 +297,11 @@ class ConvergencePlots:
     def update_plasma_plots(self):
         """Update plasma convergence plots every iteration."""
         # convert velocity to km/s
-        velocity_km_s = self.iterable_data["velocity"].to(u.km / u.s).value.tolist()
+        #velocity_km_s = self.iterable_data["velocity"].to(u.km / u.s).value.tolist()
+        radius_cm = self.iterable_data["radius"].to(u.cm).value.tolist()
 
         # add luminosity data in hover data in plasma plots
-        customdata = len(velocity_km_s) * [
+        customdata = len(radius_cm) * [
             "<br>"
             "Emitted Luminosity: "
             f"{self.value_data['Emitted'][-1]:.4g}"
@@ -314,7 +315,7 @@ class ConvergencePlots:
 
         # add a radiation temperature vs shell velocity trace to the plasma plot
         self.plasma_plot.add_scatter(
-            x=velocity_km_s,
+            x=radius_cm,
             y=np.append(self.iterable_data["t_rad"], self.iterable_data["t_rad"][-1:]),
             line_color=self.plasma_colorscale[self.current_iteration - 1],
             line_shape="hv",
@@ -329,7 +330,7 @@ class ConvergencePlots:
 
         # add a dilution factor vs shell velocity trace to the plasma plot
         self.plasma_plot.add_scatter(
-            x=velocity_km_s,
+            x=radius_cm,
             y=np.append(self.iterable_data["w"], self.iterable_data["w"][-1:]),
             line_color=self.plasma_colorscale[self.current_iteration - 1],
             line_shape="hv",

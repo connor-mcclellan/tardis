@@ -5,6 +5,7 @@ from tardis.simulation.base import PlasmaStateStorerMixin
 from tardis.spectrum.luminosity import (
     calculate_filtered_luminosity,
 )
+from tardis.transport.montecarlo.progress_bars import initialize_iterations_pbar
 from tardis.util.environment import Environment
 from tardis.visualization import ConvergencePlots
 from tardis.workflows.simple_tardis_workflow import SimpleTARDISWorkflow
@@ -48,6 +49,7 @@ class StandardTARDISWorkflow(
         self.specific_log_level = specific_log_level
         self.enable_virtual_packet_logging = enable_virtual_packet_logging
         self.convergence_plots_kwargs = convergence_plots_kwargs
+        self.converged = False
 
         SimpleTARDISWorkflow.__init__(self, configuration, csvy)
 
@@ -160,7 +162,7 @@ class StandardTARDISWorkflow(
                 "t_inner": [self.simulation_state.t_inner.value, "value"],
                 "t_rad": [self.simulation_state.t_radiative, "iterable"],
                 "w": [self.simulation_state.dilution_factor, "iterable"],
-                "velocity": [self.simulation_state.velocity, "iterable"],
+                "radius": [self.simulation_state.radius, "iterable"],
                 "Emitted": [emitted_luminosity.value, "value"],
                 "Absorbed": [absorbed_luminosity.value, "value"],
                 "Requested": [self.luminosity_requested.value, "value"],
@@ -205,7 +207,9 @@ class StandardTARDISWorkflow(
 
     def run(self):
         """Run the TARDIS simulation until convergence is reached"""
-        self.converged = False
+        if self.show_progress_bars:
+            initialize_iterations_pbar(self.total_iterations)
+
         while self.completed_iterations < self.total_iterations - 1:
             logger.info(
                 f"\n\tStarting iteration {(self.completed_iterations + 1):d} of {self.total_iterations:d}"

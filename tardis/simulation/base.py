@@ -349,8 +349,8 @@ class Simulation(PlasmaStateStorerMixin, HDFWriterMixin):
                 item_type="iterable",
             )
             self.convergence_plots.fetch_data(
-                name="velocity",
-                value=self.simulation_state.velocity,
+                name="radius",
+                value=self.simulation_state.radius,
                 item_type="iterable",
             )
 

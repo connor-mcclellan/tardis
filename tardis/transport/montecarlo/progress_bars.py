@@ -84,6 +84,8 @@ def initialize_iterations_pbar(total_iterations: int) -> None:
     """
     if iterations_pbar.total is None:
         fix_bar_layout(iterations_pbar, total_iterations=total_iterations)
+    else:
+        iterations_pbar.reset(total=total_iterations)
 
 
 def fix_bar_layout(bar, no_of_packets=None, total_iterations=None):

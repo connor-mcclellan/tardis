@@ -370,6 +370,7 @@ class IonNumberDensity(ProcessingPlasmaProperty):
                         f"n_electron iterations above 100 ({n_electron_iterations}) -"
                         f" something is probably wrong"
                     )
+                    break
                 if np.all(
                     np.abs(new_n_electron - n_electron) / n_electron
                     < n_e_convergence_threshold

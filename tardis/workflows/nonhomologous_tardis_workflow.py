@@ -171,7 +171,7 @@ class NonhomologousTARDISWorkflow(StandardTARDISWorkflow):
                 "t_inner": [self.simulation_state.t_inner.value, "value"],
                 "t_rad": [self.simulation_state.t_radiative, "iterable"],
                 "w": [self.simulation_state.dilution_factor, "iterable"],
-                "velocity": [self.simulation_state.velocity, "iterable"],
+                "radius": [self.simulation_state.radius, "iterable"],
                 "Emitted": [emitted_luminosity.value, "value"],
                 "Absorbed": [absorbed_luminosity.value, "value"],
                 "Requested": [self.luminosity_requested.value, "value"],
