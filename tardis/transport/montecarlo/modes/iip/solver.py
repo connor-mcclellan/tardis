@@ -137,13 +137,13 @@ class MCTransportSolverIIP(HDFWriterMixin):
             self.line_interaction_type,
         )
         # opacity_state_numba = opacity_state_numba[
-        #     simulation_state.geometry.v_inner_boundary_index : simulation_state.geometry.v_outer_boundary_index
+        #     simulation_state.geometry.v_inner_boundary_idx : simulation_state.geometry.v_outer_boundary_idx
         # ]
 
         transport_state = MonteCarloTransportState(
             packet_collection,
-            geometry_state=geometry_state,
-            opacity_state=opacity_state_numba,
+            geometry_state_numba=geometry_state,
+            opacity_state_numba=opacity_state_numba,
             time_explosion=simulation_state.time_explosion,
             n_levels_bf_species_by_n_cells_tuple=n_levels_bf_species_by_n_cells_tuple,
         )
@@ -205,9 +205,9 @@ class MCTransportSolverIIP(HDFWriterMixin):
             estimators_continuum,
         ) = montecarlo_transport(
             transport_state.packet_collection,
-            transport_state.geometry_state,
+            transport_state.geometry_state_numba,
             transport_state.time_explosion.cgs.value,
-            transport_state.opacity_state,
+            transport_state.opacity_state_numba,
             self.montecarlo_configuration,
             transport_state.n_levels_bf_species_by_n_cells_tuple,
             trackers_list,

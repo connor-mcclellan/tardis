@@ -120,10 +120,10 @@
       "name": "Barbosa, Talytha"
     },
     {
-      "name": "Yu, Jenny"
+      "name": "Sondhi, Dhruv"
     },
     {
-      "name": "Sondhi, Dhruv"
+      "name": "Yu, Jenny"
     },
     {
       "name": "O'Brien, Jack"
@@ -137,10 +137,10 @@
       "name": "Patel, Maryam"
     },
     {
-      "name": "Rathi, Shikha"
+      "name": "Varanasi, Kaushik"
     },
     {
-      "name": "Varanasi, Kaushik"
+      "name": "Rathi, Shikha"
     },
     {
       "name": "Chitchyan, Sona"
@@ -151,22 +151,22 @@
       "affiliation": "University of Oxford"
     },
     {
-      "name": "Marie Lynn, Haille"
-    },
-    {
-      "name": "Savel, Arjun"
-    },
-    {
       "name": "Gupta, Sumit"
+    },
+    {
+      "name": "Marie Lynn, Haille"
     },
     {
       "name": "Singh, Shreyas"
     },
     {
-      "name": "Reinecke, Martin"
+      "name": "Savel, Arjun"
     },
     {
       "name": "Eweis, Youssef"
+    },
+    {
+      "name": "Reinecke, Martin"
     },
     {
       "name": "Shah, Swayam",
@@ -182,35 +182,46 @@
       "name": "Visser, Erin"
     },
     {
-      "name": "Bentil, Laud"
-    },
-    {
       "name": "Black, William"
     },
     {
-      "name": "Kumar, Asish"
+      "name": "Bentil, Laud"
+    },
+    {
+      "name": "McClellan, Connor",
+      "orcid": "0000-0002-6040-8281",
+      "affiliation": "University of Virginia"
     },
     {
       "name": "Dutta, Anirban"
     },
     {
+      "name": "Lu, Jing"
+    },
+    {
       "name": "Groneck, Ryan"
     },
     {
-      "name": "Lu, Jing"
+      "name": "Kumar, Asish"
     },
     {
       "name": "Eguren, Jordi",
       "orcid": "0000-0002-2328-8030"
     },
     {
-      "name": "Bartnik, Matthew"
-    },
-    {
       "name": "Kumar, Ansh"
     },
     {
+      "name": "Bartnik, Matthew"
+    },
+    {
       "name": "Srivastava, Sarthak"
+    },
+    {
+      "name": "Alam, Arib"
+    },
+    {
+      "name": "Saraf, Shreyans"
     },
     {
       "name": "Varma Buddaraju, Rohith"
@@ -219,30 +230,13 @@
       "name": "Magee, Mark"
     },
     {
-      "name": "Alam, Arib"
+      "name": "Daksh, Ayushi"
     },
     {
       "name": "Livneh, Ran"
     },
     {
       "name": "Kambham, Satwik"
-    },
-    {
-      "name": "Daksh, Ayushi"
-    },
-    {
-      "name": "Rajagopalan, Srinath"
-    },
-    {
-      "name": "Roldan, Israel"
-    },
-    {
-      "name": "McClellan, Connor",
-      "orcid": "0000-0002-6040-8281",
-      "affiliation": "University of Virginia"
-    },
-    {
-      "name": "Bhakar, Jayant"
     },
     {
       "name": "Powers, Cecelia"
@@ -252,14 +246,13 @@
       "orcid": "0000-0001-8302-1584"
     },
     {
-      "name": "Dadu, Aaryan",
-      "orcid": "0009-0005-3670-8777"
+      "name": "Bhakar, Jayant"
     },
     {
-      "name": "Reichenbach, John"
+      "name": "Rajagopalan, Srinath"
     },
     {
-      "name": "Jain, Rinkle"
+      "name": "Roldan, Israel"
     },
     {
       "name": "Nitish, P"
@@ -268,13 +261,19 @@
       "name": "Actions, GitHub"
     },
     {
-      "name": "Saraf, Shreyans"
+      "name": "Reichenbach, John"
     },
     {
-      "name": "Brar, Antreev"
+      "name": "Dadu, Aaryan",
+      "orcid": "0009-0005-3670-8777"
     },
     {
-      "name": "Gupta, Harshul"
+      "name": "Rao, Rishmita",
+      "orcid": "0009-0003-3964-2107",
+      "affiliation": "Texas A&M University"
+    },
+    {
+      "name": "Jain, Rinkle"
     },
     {
       "name": "Singh, Sourav"
@@ -283,31 +282,34 @@
       "name": "Chaumal, Aarya"
     },
     {
-      "name": "Gangbhoj, Riddhi"
+      "name": "Brar, Antreev"
     },
     {
-      "name": "Sofiatti, Caroline"
-    },
-    {
-      "name": "Kowalski, Nathan"
-    },
-    {
-      "name": "Matsumura, Yuki"
-    },
-    {
-      "name": "Selsing, Jonatan"
-    },
-    {
-      "name": "Patidar, Abhishek"
+      "name": "Gupta, Harshul"
     },
     {
       "name": "Talegaonkar, Chinmay"
     },
     {
+      "name": "Kowalski, Nathan"
+    },
+    {
+      "name": "Selsing, Jonatan"
+    },
+    {
+      "name": "Sofiatti, Caroline"
+    },
+    {
+      "name": "Gangbhoj, Riddhi"
+    },
+    {
+      "name": "Matsumura, Yuki"
+    },
+    {
       "name": "Perkins, Haille"
     },
     {
-      "name": "Lemoine, Thom"
+      "name": "Patidar, Abhishek"
     },
     {
       "name": "Wahi, Ujjwal"
@@ -325,16 +327,16 @@
       "name": "Chen, Nutan"
     },
     {
-      "name": "Buchner, Johannes"
+      "name": "Yap, Kevin"
     },
     {
       "name": "Bhandari, Jhalak"
     },
     {
-      "name": "Vieira, Nicholas"
+      "name": "Buchner, Johannes"
     },
     {
-      "name": "Yap, Kevin"
+      "name": "Vieira, Nicholas"
     },
     {
       "name": "Nagadevi, Kona",
@@ -362,38 +364,38 @@
       "name": "Gupta, Suyash"
     },
     {
+      "name": "Lemoine, Thom"
+    },
+    {
       "name": "Dasgupta, Debajyoti"
     },
     {
-      "name": "Prasad, Shilpi"
+      "name": "PATIDAR, ABHISHEK"
     },
     {
-      "name": "Martinez, Laureano"
+      "name": "Kumar, Aman"
     },
     {
       "name": "Jaiswal, Abhayraj",
       "orcid": "0009-0003-8477-2963"
     },
     {
-      "name": "Kumar, Aman"
+      "name": "Kumar, Atul"
     },
     {
       "name": "Nayak U, Ashwin"
     },
     {
-      "name": "Kumar, Atul"
-    },
-    {
       "name": "Watson, Clyde"
     },
     {
-      "name": "PATIDAR, ABHISHEK"
-    },
-    {
-      "name": "Venkat, Shashank"
+      "name": "Martinez, Laureano"
     },
     {
       "name": "Volodin, Dmitry"
+    },
+    {
+      "name": "Prasad, Shilpi"
     },
     {
       "name": "Diddige, Harshitha"
@@ -402,18 +404,19 @@
       "name": "Patel, Pratik"
     },
     {
-      "name": "Rao, Rishmita",
-      "orcid": "0009-0003-3964-2107",
-      "affiliation": "Texas A&M University"
-    },
-    {
       "name": "Prasad, Rohit"
     },
     {
       "name": "Gajanan Nalbalwar, Rudraksh"
     },
     {
+      "name": "Kunisetty, Saanvi"
+    },
+    {
       "name": "Sharma, Sampark"
+    },
+    {
+      "name": "Venkat, Shashank"
     }
   ],
   "license": "bsd-3-clause"

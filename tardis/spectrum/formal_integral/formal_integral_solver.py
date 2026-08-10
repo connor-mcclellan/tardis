@@ -233,16 +233,16 @@ class FormalIntegralSolver:
         mct_state = transport_solver.transport_state
         if interpolate_shells > 0:
             radius_interpolated = np.linspace(
-                mct_state.geometry_state.r_inner[0],
-                mct_state.geometry_state.r_outer[-1],
+                mct_state.geometry_state_numba.r_inner[0],
+                mct_state.geometry_state_numba.r_outer[-1],
                 interpolate_shells,
             )
             r_inner_interpolated = radius_interpolated[:-1]
             r_outer_interpolated = radius_interpolated[1:]
         elif interpolate_shells <= 0:
             # Use original radii values when interpolate_shells < 0
-            r_inner_interpolated = mct_state.geometry_state.r_inner
-            r_outer_interpolated = mct_state.geometry_state.r_outer
+            r_inner_interpolated = mct_state.geometry_state_numba.r_inner
+            r_outer_interpolated = mct_state.geometry_state_numba.r_outer
 
         (
             att_S_ul_interpolated,
@@ -253,8 +253,8 @@ class FormalIntegralSolver:
             tau_sobolevs_interpolated,
             electron_densities_interpolated,
         ) = self.interpolate_integrator_quantities(
-            mct_state.geometry_state.r_inner,
-            mct_state.geometry_state.r_outer,
+            mct_state.geometry_state_numba.r_inner,
+            mct_state.geometry_state_numba.r_outer,
             r_inner_interpolated,
             r_outer_interpolated,
             source_function_state,
@@ -293,7 +293,8 @@ class FormalIntegralSolver:
         ), "Frequency grid must be uniform"
 
         luminosity = (
-            u.Quantity(luminosity_densities, "erg/s/Hz") * delta_frequency
+            u.Quantity(luminosity_densities, u.erg / u.s / u.Hz)
+            * delta_frequency
         )
 
         frequencies = frequencies.to("Hz", u.spectral())
@@ -371,23 +372,23 @@ class FormalIntegralSolver:
         electron_densities_interpolated = interp1d(
             r_middle_original,
             electron_densities.iloc[
-                simulation_state.geometry.v_inner_boundary_index : simulation_state.geometry.v_outer_boundary_index
+                simulation_state.geometry.v_inner_boundary_idx : simulation_state.geometry.v_outer_boundary_idx
             ],
             fill_value="extrapolate",  # type: ignore[arg-type]
             kind="nearest",
         )(r_middle_interpolated)
         # Assume tau_sobolevs to be constant within a shell
         # (as in the MC simulation)
-        v_inner_boundary_index = (
-            simulation_state.geometry.v_inner_boundary_index
+        v_inner_boundary_idx = (
+            simulation_state.geometry.v_inner_boundary_idx
         )
-        v_outer_boundary_index = (
-            simulation_state.geometry.v_outer_boundary_index
+        v_outer_boundary_idx = (
+            simulation_state.geometry.v_outer_boundary_idx
         )
         tau_sobolevs_interpolated = interp1d(
             r_middle_original,
             opacity_state.tau_sobolev.values[
-                :, v_inner_boundary_index:v_outer_boundary_index
+                :, v_inner_boundary_idx:v_outer_boundary_idx
             ],
             fill_value="extrapolate",  # type: ignore[arg-type]
             kind="nearest",

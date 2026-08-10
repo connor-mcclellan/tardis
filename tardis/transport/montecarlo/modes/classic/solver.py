@@ -15,8 +15,11 @@ from tardis.transport.montecarlo.configuration.base import (
 from tardis.transport.montecarlo.estimators.mc_rad_field_solver import (
     MCRadiationFieldPropertiesSolver,
 )
-from tardis.transport.montecarlo.modes.classic.montecarlo_transport import (
-    montecarlo_transport,
+from tardis.transport.montecarlo.modes.classic.packet_propagation import (
+    packet_propagation,
+)
+from tardis.transport.montecarlo.modes.montecarlo_transport import (
+    montecarlo_transport_with_vpackets,
 )
 from tardis.transport.montecarlo.montecarlo_transport_state import (
     MonteCarloTransportState,
@@ -127,13 +130,13 @@ class MCTransportSolverClassic(HDFWriterMixin):
             self.line_interaction_type,
         )
         opacity_state_numba = opacity_state_numba[
-            simulation_state.geometry.v_inner_boundary_index : simulation_state.geometry.v_outer_boundary_index
+            simulation_state.geometry.v_inner_boundary_idx : simulation_state.geometry.v_outer_boundary_idx
         ]
 
         transport_state = MonteCarloTransportState(
             packet_collection,
-            geometry_state=geometry_state,
-            opacity_state=opacity_state_numba,
+            geometry_state_numba=geometry_state,
+            opacity_state_numba=opacity_state_numba,
             time_explosion=simulation_state.time_explosion,
             n_levels_bf_species_by_n_cells_tuple=n_levels_bf_species_by_n_cells_tuple,
         )
@@ -217,16 +220,17 @@ class MCTransportSolverClassic(HDFWriterMixin):
             vpacket_tracker,
             estimators_bulk,
             estimators_line,
-        ) = montecarlo_transport(
+        ) = montecarlo_transport_with_vpackets(
             transport_state.packet_collection,
-            transport_state.geometry_state,
+            transport_state.geometry_state_numba,
             transport_state.time_explosion.cgs.value,
-            transport_state.opacity_state,
+            transport_state.opacity_state_numba,
             self.montecarlo_configuration,
             self.spectrum_frequency_grid.value,
             trackers_list,
             number_of_vpackets,
             show_progress_bars=show_progress_bars,
+            packet_propagation_function=packet_propagation,
         )
 
         # Attach estimators to transport state
