@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -6,8 +8,14 @@ from tardis.model.geometry.radial1d import NumbaRadial1DGeometry
 from tardis.model.geometry.radial1d_homologous import (
     NumbaHomologousRadial1DGeometry,
 )
+from tardis.opacities.opacity_state_numba import OpacityStateNumba
+from tardis.transport.frame_transformations import get_inverse_doppler_factor
+from tardis.transport.montecarlo.configuration.constants import C_SPEED_OF_LIGHT
 from tardis.transport.montecarlo.estimators.estimators_bulk import (
     init_estimators_bulk,
+)
+from tardis.transport.montecarlo.estimators.estimators_line import (
+    EstimatorsLine,
 )
 from tardis.transport.montecarlo.modes.homologous_rad_packet_transport import (
     trace_packet as homologous_trace_packet,
@@ -22,6 +30,7 @@ from tardis.transport.montecarlo.packets.movement import (
 from tardis.transport.montecarlo.packets.radiative_packet import (
     InteractionType,
     PacketStatus,
+    RPacket,
 )
 
 RTOL = 1.0e-12
@@ -581,3 +590,96 @@ def test_nonhomologous_trace_packet_no_line_fallthrough(
         line_estimators.mean_intensity_blueward,
         rtol=RTOL,
     )
+
+
+def test_nonhomologous_trace_does_not_reresonate_in_homologous_flow(
+    homologous_radial_1d_geometry: NumbaHomologousRadial1DGeometry,
+    classic_opacity_state: OpacityStateNumba,
+    line_estimators: EstimatorsLine,
+    set_seed_fixture: Callable[[int], None],
+) -> None:
+    """An emitted line has no later resonance when v = r / t.
+
+    Claim: comoving frequency falls monotonically along a ray in homology.
+    Regime: partial relativity, no continuum opacity, one opaque emitted line.
+    Verification: the next event is the outer shell boundary.
+    """
+    homologous = homologous_radial_1d_geometry
+    geometry = NumbaRadial1DGeometry(
+        homologous.r_inner,
+        homologous.r_outer,
+        homologous.v_inner,
+        homologous.v_outer,
+    )
+    opacity_state = classic_opacity_state
+    opacity_state.line_list_nu[:] = [4.0e14, 1.0e9]
+    opacity_state.tau_sobolev[:] = 0.0
+    opacity_state.tau_sobolev[0, :] = 100.0
+    radius, mu = 7.5e14, 0.9
+    doppler_factor = 1.0 - radius * mu / (
+        C_SPEED_OF_LIGHT * homologous.time_explosion
+    )
+    packet = RPacket(
+        radius, mu, opacity_state.line_list_nu[0] / doppler_factor, 1.0, 42, 0
+    )
+    packet.next_line_id = 1
+    set_seed_fixture(1963)
+
+    _, interaction_type, _ = nonhomologous_trace_packet(
+        packet, geometry, opacity_state, line_estimators, 0.0, False, False
+    )
+
+    assert interaction_type == InteractionType.BOUNDARY
+
+
+@pytest.mark.parametrize("emission_formula", ["division", "inverse"])
+def test_nonhomologous_trace_reresonates_after_gradient_reversal(
+    classic_opacity_state: OpacityStateNumba,
+    line_estimators: EstimatorsLine,
+    set_seed_fixture: Callable[[int], None],
+    emission_formula: str,
+) -> None:
+    """A genuine later crossing of the emitted line remains possible.
+
+    Claim: a nonhomologous flow can reverse the comoving frequency trend.
+    Regime: one shell, partial relativity, no continuum opacity.
+    Verification: the packet meets the opaque line inside the shell.
+    """
+    geometry = NumbaRadial1DGeometry(
+        np.array([1.0e14]),
+        np.array([2.0e14]),
+        np.array([2.0e9]),
+        np.array([5.0e8]),
+    )
+    opacity_state = classic_opacity_state
+    opacity_state.line_list_nu[:] = [4.0e14, 1.0e9]
+    opacity_state.tau_sobolev[:] = 0.0
+    opacity_state.tau_sobolev[0, 0] = 100.0
+    radius, mu = 1.5e14, 0.5
+    velocity = geometry.get_velocity(radius, 0)
+    line_frequency = opacity_state.line_list_nu[0]
+    if emission_formula == "inverse":
+        lab_frequency = line_frequency * get_inverse_doppler_factor(
+            velocity, mu, False
+        )
+    else:
+        lab_frequency = line_frequency / (
+            1.0 - velocity * mu / C_SPEED_OF_LIGHT
+        )
+    packet = RPacket(
+        radius,
+        mu,
+        lab_frequency,
+        1.0,
+        42,
+        0,
+    )
+    packet.next_line_id = 1
+    set_seed_fixture(1963)
+
+    distance, interaction_type, _ = nonhomologous_trace_packet(
+        packet, geometry, opacity_state, line_estimators, 0.0, False, False
+    )
+
+    assert interaction_type == InteractionType.LINE
+    assert distance > 1.0e12

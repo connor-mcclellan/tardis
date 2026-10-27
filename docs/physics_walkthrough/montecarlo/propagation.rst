@@ -228,6 +228,14 @@ distance :math:`l` to the next Sobolev point is
 
 where :math:`\nu_{\mathrm{CMF},i}` is the frequency of the packet in the co-moving frame at the initial position.
 
+For homologous expansion, :math:`r\mu=r_i\mu_i+l`, so the co-moving
+frequency in this approximation decreases strictly with distance. A packet
+emitted at a line's resonance cannot encounter that line again along the same
+flight. In a nonhomologous velocity field the projected velocity gradient can
+change sign along a ray, allowing a later encounter with the same line. The
+nonhomologous resonance search excludes a crossing at the packet's starting
+position while retaining later crossings after such a reversal.
+
 At a Sobolev point, the packet instantaneously accumulates optical depth, the value of which is called the Sobolev
 optical depth :math:`\tau_\mathrm{Sobolev}` (see :ref:`tau_sobolev`). This corresponds to a probability of
 :math:`1-e^{-\tau_\mathrm{Sobolev}}` that the packet interacts with the atomic line.

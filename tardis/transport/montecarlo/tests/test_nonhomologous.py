@@ -371,6 +371,52 @@ def test_nonhomologous_distance_preserves_near_line_center_root() -> None:
     )
 
 
+def test_nonhomologous_distance_preserves_resolved_near_start_root() -> None:
+    """Resolve a line just ahead of a packet in a homologous velocity field.
+
+    Claim: a small but resolved blueward offset has a forward resonance.
+    Regime: partial relativity and eight lab-frequency ulps above line center.
+    Verification: compare with the analytic homologous distance.
+    """
+    time_explosion = 5.2e7
+    radius = 7.5e14
+    mu = 0.9
+    line_frequency = 4.0e14
+    geometry = NumbaRadial1DGeometry(
+        np.asarray([7.0e14]),
+        np.asarray([8.0e14]),
+        np.asarray([7.0e14 / time_explosion]),
+        np.asarray([8.0e14 / time_explosion]),
+    )
+    doppler_factor = 1.0 - radius * mu / (
+        C_SPEED_OF_LIGHT * time_explosion
+    )
+    emission_frequency = line_frequency / doppler_factor
+    packet = RPacket(
+        radius,
+        mu,
+        emission_frequency + 8.0 * np.spacing(emission_frequency),
+        1.0,
+        42,
+        0,
+    )
+    starting_frequency = packet.nu * doppler_factor
+    expected_distance = (
+        (starting_frequency - line_frequency)
+        / packet.nu
+        * C_SPEED_OF_LIGHT
+        * time_explosion
+    )
+
+    distance = calculate_distance_line_nonhomologous(
+        packet, geometry, line_frequency
+    )
+
+    # The offset is only eight lab-frequency ulps, so rounding the starting
+    # comoving frequency by half an ulp changes this distance by about 6%.
+    npt.assert_allclose(distance, expected_distance, rtol=1.0e-1)
+
+
 def test_nonhomologous_distance_rejects_sign_reversed_root() -> None:
     """Select a root constructed from the unsquared resonance equation."""
     shell_width = 1.0e12

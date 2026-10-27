@@ -7,6 +7,7 @@ from numba import njit
 from tardis.model.geometry.radial1d import (
     NumbaRadial1DGeometry,
 )
+from tardis.transport.frame_transformations import get_inverse_doppler_factor
 from tardis.transport.montecarlo import (
     njit_dict_no_parallel,
 )
@@ -17,6 +18,8 @@ from tardis.transport.montecarlo.configuration.constants import (
     SIGMA_THOMSON,
 )
 from tardis.transport.montecarlo.nonhomologous_grid import (
+    FLOAT64_EPSILON,
+    FLOAT64_ROUNDOFF_TOLERANCE,
     solve_resonance_quartic,
 )
 from tardis.transport.montecarlo.packets.radiative_packet import RPacket
@@ -196,7 +199,8 @@ def calculate_distance_line_nonhomologous(
     Calculate the distance to a line resonance in a radial velocity field.
 
     Candidate roots must lie after ``minimum_distance`` and no farther than
-    ``maximum_distance`` along the current packet trajectory.
+    ``maximum_distance`` along the current packet trajectory. A line at the
+    interval start is excluded until the next projected-gradient reversal.
 
     Parameters
     ----------
@@ -231,12 +235,32 @@ def calculate_distance_line_nonhomologous(
     )
     transverse_direction_fraction = 1.0 - direction_cosine**2
     velocity_intercept = v_outer - velocity_gradient * r_outer
+    # Homology has zero intercept. Edge velocities rounded to float64 can
+    # leave a nonzero intercept that splits the repeated homologous root.
+    nearly_homologous = velocity_gradient != 0.0 and abs(
+        velocity_intercept
+    ) <= FLOAT64_ROUNDOFF_TOLERANCE * max(abs(v_inner), abs(v_outer))
 
     # Characteristic scales for non-dimensionalization
     shell_width = r_outer - r_inner
     shell_velocity_difference = v_outer - v_inner
     distance_tolerance = CLOSE_LINE_THRESHOLD * shell_width
-    if shell_velocity_difference == 0.0:
+    if nearly_homologous:
+        # For v = m*r, solve in path distance directly. Centering on the
+        # line's lab-frame frequency avoids subtracting two large ray positions.
+        start_velocity = geometry.get_velocity(radius, rpacket.current_shell_id)
+        start_doppler_factor = (
+            1.0 - start_velocity * direction_cosine / C_SPEED_OF_LIGHT
+        )
+        line_center_lab_frequency = nu_line / start_doppler_factor
+        local_distance = (
+            C_SPEED_OF_LIGHT
+            * start_doppler_factor
+            * (rest_frequency - line_center_lab_frequency)
+            / (velocity_gradient * rest_frequency)
+        )
+        projected_position_roots = (0.0, math.nan, math.nan, math.nan)
+    elif shell_velocity_difference == 0.0:
         impact_parameter_squared = (
             radius * radius * transverse_direction_fraction
         )
@@ -289,6 +313,49 @@ def calculate_distance_line_nonhomologous(
             scaled_velocity_intercept,
         )
 
+    # A line already at the start of a monotonic interval cannot resonate
+    # again before the next projected-gradient reversal. Compare frequencies
+    # here because conversion of an absolute quartic root to path distance
+    # can turn a zero-distance root into a small positive distance.
+    if minimum_distance == 0.0:
+        interval_start_radius = radius
+        interval_start_mu = direction_cosine
+    else:
+        interval_start_radius, interval_start_mu = calculate_packet_position(
+            radius, direction_cosine, minimum_distance
+        )
+    interval_start_velocity = geometry.get_velocity(
+        interval_start_radius, rpacket.current_shell_id
+    )
+    line_center_lab_frequency = nu_line / (
+        1.0 - interval_start_velocity * interval_start_mu / C_SPEED_OF_LIGHT
+    )
+    line_center_roundoff = FLOAT64_EPSILON * max(
+        abs(rest_frequency), abs(line_center_lab_frequency)
+    )
+    start_line_exclusion_end = minimum_distance
+    if (
+        abs(rest_frequency - line_center_lab_frequency) <= line_center_roundoff
+        or rest_frequency
+        == nu_line
+        * get_inverse_doppler_factor(
+            interval_start_velocity, interval_start_mu, False
+        )
+    ):
+        distance_boundary, _ = calculate_distance_boundary(
+            radius, direction_cosine, r_inner, r_outer
+        )
+        first_turn, second_turn, turn_count = (
+            calculate_projected_gradient_zero_distances(
+                rpacket, geometry, distance_boundary
+            )
+        )
+        start_line_exclusion_end = distance_boundary
+        if turn_count > 0 and first_turn > minimum_distance:
+            start_line_exclusion_end = first_turn
+        elif turn_count > 1 and second_turn > minimum_distance:
+            start_line_exclusion_end = second_turn
+
     # Convert each dimensionless signed ray coordinate to a path distance from
     # the packet's current position: distance = shell_width *
     # projected_position_root - radius * direction_cosine.
@@ -297,7 +364,7 @@ def calculate_distance_line_nonhomologous(
     for projected_position_root in projected_position_roots:
         if not math.isfinite(projected_position_root):
             continue
-        if shell_velocity_difference != 0.0:
+        if shell_velocity_difference != 0.0 and not nearly_homologous:
             # The quartic solver squares the resonance equation to remove a sqrt
             # Here we reject roots that don't preserve the original sign of the unsquared equation
             scaled_resonance_offset = (
@@ -316,11 +383,15 @@ def calculate_distance_line_nonhomologous(
             )
             if has_unphysical_sign:
                 continue
-        candidate_distance = (
-            shell_width * projected_position_root - radius * direction_cosine
-        )
+        if nearly_homologous:
+            candidate_distance = local_distance
+        else:
+            candidate_distance = (
+                shell_width * projected_position_root - radius * direction_cosine
+            )
         if (
             candidate_distance <= minimum_distance + distance_tolerance
+            or candidate_distance <= start_line_exclusion_end
             or candidate_distance > maximum_distance + distance_tolerance
         ):
             continue
