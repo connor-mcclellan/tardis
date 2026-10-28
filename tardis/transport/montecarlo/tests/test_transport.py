@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from scipy.optimize import brentq
 
 from tardis.conftest import sync_ndarray_assert_allclose
 from tardis.model.geometry.radial1d import NumbaRadial1DGeometry
@@ -592,11 +593,17 @@ def test_nonhomologous_trace_packet_no_line_fallthrough(
     )
 
 
+@pytest.mark.parametrize(
+    ("mu", "emission_formula"),
+    [(0.9, "division"), (0.005, "inverse")],
+)
 def test_nonhomologous_trace_does_not_reresonate_in_homologous_flow(
     homologous_radial_1d_geometry: NumbaHomologousRadial1DGeometry,
     classic_opacity_state: OpacityStateNumba,
     line_estimators: EstimatorsLine,
     set_seed_fixture: Callable[[int], None],
+    mu: float,
+    emission_formula: str,
 ) -> None:
     """An emitted line has no later resonance when v = r / t.
 
@@ -615,13 +622,19 @@ def test_nonhomologous_trace_does_not_reresonate_in_homologous_flow(
     opacity_state.line_list_nu[:] = [4.0e14, 1.0e9]
     opacity_state.tau_sobolev[:] = 0.0
     opacity_state.tau_sobolev[0, :] = 100.0
-    radius, mu = 7.5e14, 0.9
+    radius = 7.5e14
     doppler_factor = 1.0 - radius * mu / (
         C_SPEED_OF_LIGHT * homologous.time_explosion
     )
-    packet = RPacket(
-        radius, mu, opacity_state.line_list_nu[0] / doppler_factor, 1.0, 42, 0
-    )
+    line_frequency = opacity_state.line_list_nu[0]
+    if emission_formula == "inverse":
+        lab_frequency = line_frequency * get_inverse_doppler_factor(
+            geometry.get_velocity(radius, 0), mu, False
+        )
+        assert lab_frequency * doppler_factor > line_frequency
+    else:
+        lab_frequency = line_frequency / doppler_factor
+    packet = RPacket(radius, mu, lab_frequency, 1.0, 42, 0)
     packet.next_line_id = 1
     set_seed_fixture(1963)
 
@@ -630,6 +643,49 @@ def test_nonhomologous_trace_does_not_reresonate_in_homologous_flow(
     )
 
     assert interaction_type == InteractionType.BOUNDARY
+    np.testing.assert_array_equal(line_estimators.mean_intensity_blueward, 0.0)
+    np.testing.assert_array_equal(line_estimators.energy_deposition_line_rate, 0.0)
+
+
+def test_nonhomologous_trace_keeps_resolved_blueward_line(
+    homologous_radial_1d_geometry: NumbaHomologousRadial1DGeometry,
+    classic_opacity_state: OpacityStateNumba,
+    line_estimators: EstimatorsLine,
+    set_seed_fixture: Callable[[int], None],
+) -> None:
+    """A line one lab-frequency ulp ahead remains reachable in homology."""
+    homologous = homologous_radial_1d_geometry
+    geometry = NumbaRadial1DGeometry(
+        homologous.r_inner,
+        homologous.r_outer,
+        homologous.v_inner,
+        homologous.v_outer,
+    )
+    opacity_state = classic_opacity_state
+    opacity_state.line_list_nu[:] = [4.0e14, 1.0e9]
+    opacity_state.tau_sobolev[:] = 0.0
+    opacity_state.tau_sobolev[0, :] = 100.0
+    radius, mu = 7.5e14, 0.005
+    velocity = geometry.get_velocity(radius, 0)
+    doppler_factor = 1.0 - velocity * mu / C_SPEED_OF_LIGHT
+    line_frequency = opacity_state.line_list_nu[0]
+    center_frequency = line_frequency / doppler_factor
+    lab_frequency = center_frequency + np.spacing(center_frequency)
+    packet = RPacket(radius, mu, lab_frequency, 1.0, 42, 0)
+    packet.next_line_id = 0
+    set_seed_fixture(1963)
+
+    distance, interaction_type, _ = nonhomologous_trace_packet(
+        packet, geometry, opacity_state, line_estimators, 0.0, False, False
+    )
+
+    expected_distance = (
+        (lab_frequency * doppler_factor - line_frequency)
+        * C_SPEED_OF_LIGHT
+        / (lab_frequency * geometry.velocity_gradient[0])
+    )
+    assert interaction_type == InteractionType.LINE
+    np.testing.assert_allclose(distance, expected_distance, rtol=0.0, atol=5.0)
 
 
 @pytest.mark.parametrize("emission_formula", ["division", "inverse"])
@@ -643,7 +699,8 @@ def test_nonhomologous_trace_reresonates_after_gradient_reversal(
 
     Claim: a nonhomologous flow can reverse the comoving frequency trend.
     Regime: one shell, partial relativity, no continuum opacity.
-    Verification: the packet meets the opaque line inside the shell.
+    Verification: independently bracket the later root of the unsquared
+    comoving-frequency equation after the projected-gradient turn.
     """
     geometry = NumbaRadial1DGeometry(
         np.array([1.0e14]),
@@ -681,5 +738,45 @@ def test_nonhomologous_trace_reresonates_after_gradient_reversal(
         packet, geometry, opacity_state, line_estimators, 0.0, False, False
     )
 
+    velocity_gradient = geometry.velocity_gradient[0]
+    velocity_intercept = geometry.v_outer[0] - velocity_gradient * geometry.r_outer[0]
+    impact_parameter_squared = radius**2 * (1.0 - mu**2)
+    initial_projected_position = radius * mu
+    turning_radius = np.cbrt(
+        -velocity_intercept * impact_parameter_squared / velocity_gradient
+    )
+    turning_distance = (
+        np.sqrt(turning_radius**2 - impact_parameter_squared)
+        - initial_projected_position
+    )
+    boundary_distance = (
+        np.sqrt(geometry.r_outer[0] ** 2 - impact_parameter_squared)
+        - initial_projected_position
+    )
+
+    def calculate_frequency_residual(path_distance: float) -> float:
+        projected_position = initial_projected_position + path_distance
+        path_radius = np.sqrt(projected_position**2 + impact_parameter_squared)
+        path_velocity = geometry.v_inner[0] + velocity_gradient * (
+            path_radius - geometry.r_inner[0]
+        )
+        return (
+            lab_frequency
+            * (1.0 - path_velocity * projected_position / (C_SPEED_OF_LIGHT * path_radius))
+            - line_frequency
+        )
+
+    assert calculate_frequency_residual(turning_distance) < 0.0
+    assert calculate_frequency_residual(boundary_distance) > 0.0
+    expected_distance = brentq(
+        calculate_frequency_residual, turning_distance, boundary_distance
+    )
     assert interaction_type == InteractionType.LINE
-    assert distance > 1.0e12
+    assert packet.next_line_id == 0
+    assert turning_distance < distance < boundary_distance
+    # At this root, ten frequency ulps divided by |d nu_CMF / ds| are
+    # under 100 cm; this also covers the quartic root's rounding error.
+    np.testing.assert_allclose(distance, expected_distance, rtol=0.0, atol=100.0)
+    assert abs(calculate_frequency_residual(distance)) <= 10.0 * np.spacing(
+        line_frequency
+    )

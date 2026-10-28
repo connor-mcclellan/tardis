@@ -233,8 +233,13 @@ frequency in this approximation decreases strictly with distance. A packet
 emitted at a line's resonance cannot encounter that line again along the same
 flight. In a nonhomologous velocity field the projected velocity gradient can
 change sign along a ray, allowing a later encounter with the same line. The
-nonhomologous resonance search excludes a crossing at the packet's starting
-position while retaining later crossings after such a reversal.
+nonhomologous resonance search divides the ray at projected-gradient zeros
+and brackets the resonance equation within each monotonic interval. It
+excludes a crossing at the packet's starting position, and the line cursor
+excludes a just-emitted line until the first gradient reversal. Later
+crossings remain possible after a reversal. A packet with
+a distinct frequency just blueward of a line still encounters that line at a
+positive distance, even when the frequency difference is small.
 
 At a Sobolev point, the packet instantaneously accumulates optical depth, the value of which is called the Sobolev
 optical depth :math:`\tau_\mathrm{Sobolev}` (see :ref:`tau_sobolev`). This corresponds to a probability of

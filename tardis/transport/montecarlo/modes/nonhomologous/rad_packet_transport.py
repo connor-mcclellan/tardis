@@ -102,6 +102,12 @@ def trace_packet(
     tau_trace_line_combined = 0.0
 
     dvdr = numba_radial_1d_geometry.velocity_gradient[r_packet.current_shell_id]
+    initial_velocity = numba_radial_1d_geometry.get_velocity(
+        r_packet.r, r_packet.current_shell_id
+    )
+    initial_projected_gradient = calculate_projected_velocity_gradient(
+        r_packet.r, r_packet.mu, initial_velocity, dvdr
+    )
     distance_electron = tau_event / opacity_electron
     (
         first_gradient_zero_distance,
@@ -137,12 +143,21 @@ def trace_packet(
         )
 
         for cur_line_id in range(start_line_id, stop_line_id, line_id_step):
+            # The line cursors record lines already passed or just emitted.
+            # Apply them only before the first gradient reversal; a later
+            # interval may cross the same line again.
+            if interval_id == 0:
+                if initial_projected_gradient > 0.0 and cur_line_id < r_packet.next_line_id:
+                    continue
+                if initial_projected_gradient < 0.0 and cur_line_id > r_packet.prev_line_id:
+                    continue
             distance_trace = calculate_distance_line_nonhomologous(
                 r_packet,
                 numba_radial_1d_geometry,
                 opacity_state.line_list_nu[cur_line_id],
                 interval_start,
                 interval_end,
+                monotonic_interval=True,
             )
             if distance_trace > interval_end:
                 continue

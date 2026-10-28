@@ -242,14 +242,6 @@ def test_calculate_distance_boundary_grazing_inner_sphere(
     assert_allclose(r_landing, target_radius, rtol=LANDING_RTOL)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "mu == 0 takes the inward branch of calculate_distance_boundary; on "
-        "r == r_inner the discriminant rounds slightly positive and returns a "
-        "negative distance with delta_shell = -1."
-    ),
-)
 @pytest.mark.parametrize("mu", [0.0, -0.0])
 def test_calculate_distance_boundary_tangent_on_inner_boundary(
     mu: float,
@@ -259,8 +251,7 @@ def test_calculate_distance_boundary_tangent_on_inner_boundary(
     away from the inner sphere, so it must exit through r_outer after
     d = sqrt(r_outer^2 - r_inner^2).
 
-    Regime: measure-zero edge case at the inner boundary; documents a known
-    defect rather than a frequently reached state.
+    Regime: a tangential ray at the inner boundary.
     Verification: right triangle with legs r_inner and d and hypotenuse
     r_outer.
     """

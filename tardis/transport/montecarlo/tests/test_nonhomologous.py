@@ -11,10 +11,13 @@ from tardis.opacities.tau_sobolev import (
     calculate_sobolev_line_opacity as classic_calculate_sobolev_line_opacity,
 )
 from tardis.transport.geometry.calculate_distances import (
+    calculate_distance_boundary,
     calculate_distance_line_nonhomologous,
+    calculate_projected_gradient_zero_distances,
 )
 from tardis.transport.montecarlo.configuration.constants import (
     C_SPEED_OF_LIGHT,
+    MISS_DISTANCE,
 )
 from tardis.transport.montecarlo.modes.nonhomologous.interaction_event_callers import (
     line_scatter_event as nonhomologous_line_scatter_event,
@@ -37,6 +40,9 @@ from tardis.transport.montecarlo.modes.nonhomologous.tau_sobolev import (
 )
 from tardis.transport.montecarlo.modes.nonhomologous.tau_sobolev import (
     calculate_sobolev_line_opacity as nonhomologous_calculate_sobolev_line_opacity,
+)
+from tardis.transport.montecarlo.modes.nonhomologous.virtual_packet import (
+    VPacket,
 )
 from tardis.transport.montecarlo.nonhomologous_grid import (
     FLOAT64_ROUNDOFF_TOLERANCE,
@@ -339,7 +345,7 @@ def test_nonhomologous_distance_solver_disables_fastmath() -> None:
 
 
 def test_nonhomologous_distance_preserves_near_line_center_root() -> None:
-    """Select the physical member of a close quartic root pair."""
+    """Resolve a close line root in a piecewise-linear flow."""
     shell_width = 1.0e12
     geometry = NumbaRadial1DGeometry(
         np.asarray([1.0e14]),
@@ -371,22 +377,34 @@ def test_nonhomologous_distance_preserves_near_line_center_root() -> None:
     )
 
 
-def test_nonhomologous_distance_preserves_resolved_near_start_root() -> None:
+@pytest.mark.parametrize("frequency_ulps", [1, 2, 8])
+@pytest.mark.parametrize("mu", [0.2, 0.9])
+@pytest.mark.parametrize("outer_radius", [8.0e14, 1.2e15])
+@pytest.mark.parametrize("perturb_outer_velocity", [False, True])
+def test_nonhomologous_distance_preserves_resolved_near_start_root(
+    frequency_ulps: int,
+    mu: float,
+    outer_radius: float,
+    perturb_outer_velocity: bool,
+) -> None:
     """Resolve a line just ahead of a packet in a homologous velocity field.
 
     Claim: a small but resolved blueward offset has a forward resonance.
-    Regime: partial relativity and eight lab-frequency ulps above line center.
+    Regime: partial relativity, varied shell widths and ray angles, and one to
+    eight lab-frequency ulps above line center.
     Verification: compare with the analytic homologous distance.
     """
     time_explosion = 5.2e7
     radius = 7.5e14
-    mu = 0.9
     line_frequency = 4.0e14
+    outer_velocity = outer_radius / time_explosion
+    if perturb_outer_velocity:
+        outer_velocity = np.nextafter(outer_velocity, np.inf)
     geometry = NumbaRadial1DGeometry(
         np.asarray([7.0e14]),
-        np.asarray([8.0e14]),
+        np.asarray([outer_radius]),
         np.asarray([7.0e14 / time_explosion]),
-        np.asarray([8.0e14 / time_explosion]),
+        np.asarray([outer_velocity]),
     )
     doppler_factor = 1.0 - radius * mu / (
         C_SPEED_OF_LIGHT * time_explosion
@@ -395,7 +413,7 @@ def test_nonhomologous_distance_preserves_resolved_near_start_root() -> None:
     packet = RPacket(
         radius,
         mu,
-        emission_frequency + 8.0 * np.spacing(emission_frequency),
+        emission_frequency + frequency_ulps * np.spacing(emission_frequency),
         1.0,
         42,
         0,
@@ -412,9 +430,135 @@ def test_nonhomologous_distance_preserves_resolved_near_start_root() -> None:
         packet, geometry, line_frequency
     )
 
-    # The offset is only eight lab-frequency ulps, so rounding the starting
-    # comoving frequency by half an ulp changes this distance by about 6%.
-    npt.assert_allclose(distance, expected_distance, rtol=1.0e-1)
+    # Edge-velocity roundoff shifts a root by at most a few centimeters here;
+    # 5 cm is well below the 243 cm one-ulp forward distance.
+    npt.assert_allclose(distance, expected_distance, rtol=0.0, atol=5.0)
+
+
+def test_nonhomologous_distance_exact_zero_intercept() -> None:
+    """The exact homologous limit resolves a nearby forward line."""
+    radius_inner = 1.0e14
+    radius_outer = 2.0e14
+    velocity_gradient = 2.0**-25
+    geometry = NumbaRadial1DGeometry(
+        np.asarray([radius_inner]),
+        np.asarray([radius_outer]),
+        np.asarray([velocity_gradient * radius_inner]),
+        np.asarray([velocity_gradient * radius_outer]),
+    )
+    assert geometry.v_outer[0] - geometry.velocity_gradient[0] * radius_outer == 0.0
+    radius = 1.5e14
+    mu = 0.8
+    line_frequency = 4.0e14
+    doppler_factor = 1.0 - velocity_gradient * radius * mu / C_SPEED_OF_LIGHT
+    line_center_lab_frequency = line_frequency / doppler_factor
+    packet = RPacket(
+        radius,
+        mu,
+        line_center_lab_frequency + 2.0 * np.spacing(line_center_lab_frequency),
+        1.0,
+        42,
+        0,
+    )
+    expected_distance = (
+        (packet.nu * doppler_factor - line_frequency)
+        * C_SPEED_OF_LIGHT
+        / (packet.nu * velocity_gradient)
+    )
+
+    distance = calculate_distance_line_nonhomologous(
+        packet, geometry, line_frequency
+    )
+
+    npt.assert_allclose(distance, expected_distance, rtol=0.0, atol=5.0)
+
+
+def test_nonhomologous_distance_excludes_zero_comoving_residual() -> None:
+    """A line at the packet position has no later root before a gradient turn."""
+    radius_inner = 1.0e14
+    radius_outer = 2.0e14
+    velocity_gradient = 2.0**-30
+    geometry = NumbaRadial1DGeometry(
+        np.asarray([radius_inner]),
+        np.asarray([radius_outer]),
+        np.asarray([velocity_gradient * radius_inner]),
+        np.asarray([velocity_gradient * radius_outer]),
+    )
+    radius = 1.0e14
+    mu = 0.8
+    lab_frequency = 400000000004176.25
+    doppler_factor = 1.0 - velocity_gradient * radius * mu / C_SPEED_OF_LIGHT
+    line_frequency = lab_frequency * doppler_factor
+    assert line_frequency / doppler_factor != lab_frequency
+    packet = RPacket(radius, mu, lab_frequency, 1.0, 42, 0)
+
+    distance = calculate_distance_line_nonhomologous(
+        packet, geometry, line_frequency
+    )
+
+    assert distance == MISS_DISTANCE
+
+
+def test_nonhomologous_gradient_keeps_distinct_near_tangent_turns() -> None:
+    """Two gradient reversals remain distinct near the ray's tangent point."""
+    radius = 1.5e14
+    impact_parameter = 1.4e14
+    mu = -np.sqrt(1.0 - (impact_parameter / radius) ** 2)
+    velocity_gradient = -1.0e-6
+    turning_radius = impact_parameter + 0.5
+    velocity_intercept = (
+        -velocity_gradient * turning_radius**3 / impact_parameter**2
+    )
+    r_inner = 1.0e14
+    r_outer = 2.0e14
+    geometry = NumbaRadial1DGeometry(
+        np.asarray([r_inner]),
+        np.asarray([r_outer]),
+        np.asarray([velocity_gradient * r_inner + velocity_intercept]),
+        np.asarray([velocity_gradient * r_outer + velocity_intercept]),
+    )
+    packet = RPacket(radius, mu, 4.0e14, 1.0, 42, 0)
+    boundary_distance, _ = calculate_distance_boundary(
+        radius, mu, r_inner, r_outer
+    )
+
+    first_turn, second_turn, turn_count = (
+        calculate_projected_gradient_zero_distances(
+            packet, geometry, boundary_distance
+        )
+    )
+
+    assert turn_count == 2
+    assert first_turn < -radius * mu < second_turn
+    assert second_turn - first_turn > 1.0e6
+
+
+def test_nonhomologous_virtual_packet_keeps_later_same_line_root() -> None:
+    """A direct virtual-packet search retains a line after a gradient turn."""
+    geometry = NumbaRadial1DGeometry(
+        np.asarray([1.0e14]),
+        np.asarray([2.0e14]),
+        np.asarray([2.0e9]),
+        np.asarray([5.0e8]),
+    )
+    radius = 1.5e14
+    mu = 0.5
+    line_frequency = 4.0e14
+    velocity = geometry.get_velocity(radius, 0)
+    packet = VPacket(
+        radius,
+        mu,
+        line_frequency / (1.0 - velocity * mu / C_SPEED_OF_LIGHT),
+        1.0,
+        0,
+        1,
+    )
+
+    distance = calculate_distance_line_nonhomologous(
+        packet, geometry, line_frequency
+    )
+
+    assert 1.0e12 < distance < 5.0e13
 
 
 def test_nonhomologous_distance_rejects_sign_reversed_root() -> None:
@@ -719,6 +863,7 @@ def test_nonhomologous_line_emission(
     )
 
     assert packet.next_line_id == emission_line_id + 1
+    assert packet.prev_line_id == emission_line_id - 1
     npt.assert_almost_equal(packet.mu, expected["mu"])
     npt.assert_almost_equal(packet.energy, expected["energy"])
 

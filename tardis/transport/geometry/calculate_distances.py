@@ -7,7 +7,6 @@ from numba import njit
 from tardis.model.geometry.radial1d import (
     NumbaRadial1DGeometry,
 )
-from tardis.transport.frame_transformations import get_inverse_doppler_factor
 from tardis.transport.montecarlo import (
     njit_dict_no_parallel,
 )
@@ -17,17 +16,14 @@ from tardis.transport.montecarlo.configuration.constants import (
     MISS_DISTANCE,
     SIGMA_THOMSON,
 )
-from tardis.transport.montecarlo.nonhomologous_grid import (
-    FLOAT64_EPSILON,
-    FLOAT64_ROUNDOFF_TOLERANCE,
-    solve_resonance_quartic,
-)
 from tardis.transport.montecarlo.packets.radiative_packet import RPacket
 from tardis.transport.montecarlo.utils import MonteCarloException
 
 
 @njit(**njit_dict_no_parallel)
-def calculate_distance_boundary(r, mu, r_inner, r_outer):
+def calculate_distance_boundary(
+    r: float, mu: float, r_inner: float, r_outer: float
+) -> tuple[float, int]:
     """
     Calculate distance to shell boundary in cm.
 
@@ -43,7 +39,7 @@ def calculate_distance_boundary(r, mu, r_inner, r_outer):
        outer radius of current shell
     """
     delta_shell = 0
-    if mu > 0.0:
+    if mu >= 0.0:
         # direction outward
         distance = math.sqrt(r_outer * r_outer + ((mu * mu - 1.0) * r * r)) - (
             r * mu
@@ -188,226 +184,186 @@ def calculate_projected_velocity_gradient(
 
 
 @njit(fastmath=False, error_model="numpy", parallel=False)
+def calculate_projected_velocity_change(
+    radius: float,
+    direction_cosine: float,
+    radial_velocity: float,
+    velocity_gradient: float,
+    distance: float,
+) -> float:
+    """Evaluate the projected-velocity change in packet-centered coordinates.
+
+    Parameters
+    ----------
+    radius : float
+        Initial packet radius in centimeters.
+    direction_cosine : float
+        Initial direction cosine.
+    radial_velocity : float
+        Radial velocity at the packet position in centimeters per second.
+    velocity_gradient : float
+        Radial velocity gradient in inverse seconds.
+    distance : float
+        Distance traveled along the ray in centimeters.
+
+    Returns
+    -------
+    float
+        Change in projected velocity in centimeters per second.
+    """
+    initial_projected_position = radius * direction_cosine
+    final_radius = math.sqrt(
+        radius * radius
+        + 2.0 * initial_projected_position * distance
+        + distance * distance
+    )
+    radius_change = (
+        distance
+        * (2.0 * initial_projected_position + distance)
+        / (final_radius + radius)
+    )
+    direction_change = (
+        distance - direction_cosine * radius_change
+    ) / (radius + radius_change)
+    velocity_intercept = radial_velocity - velocity_gradient * radius
+    return velocity_gradient * distance + velocity_intercept * direction_change
+
+
+@njit(fastmath=False, error_model="numpy", parallel=False)
 def calculate_distance_line_nonhomologous(
     rpacket: RPacket,
     geometry: NumbaRadial1DGeometry,
     nu_line: float,
     minimum_distance: float = 0.0,
     maximum_distance: float = MISS_DISTANCE,
+    monotonic_interval: bool = False,
 ) -> float:
-    """
-    Calculate the distance to a line resonance in a radial velocity field.
+    """Find the first resonance in a piecewise-linear radial velocity field.
 
-    Candidate roots must lie after ``minimum_distance`` and no farther than
-    ``maximum_distance`` along the current packet trajectory. A line at the
-    interval start is excluded until the next projected-gradient reversal.
+    The projected velocity is monotonic between its gradient zeros. A line
+    therefore has a root in one such interval only if its signed residual
+    crosses zero there. The lower endpoint is excluded to avoid repeating a
+    resonance at the packet or at the preceding interval boundary.
 
     Parameters
     ----------
-    rpacket : tardis.transport.montecarlo.packets.radiative_packet.RPacket
-        Radiative packet being propagated.
-    geometry : tardis.model.geometry.radial1d.NumbaRadial1DGeometry
-        Radial geometry containing the piecewise-linear velocity field.
+    rpacket : RPacket
+        Packet defining the ray and lab-frame frequency.
+    geometry : NumbaRadial1DGeometry
+        Shell radii and radial velocities.
     nu_line : float
-        Rest frequency of the target line.
+        Rest frequency of the line in hertz.
     minimum_distance : float, optional
-        Exclusive lower bound for candidate resonance distances.
+        Exclusive lower bound in centimeters.
     maximum_distance : float, optional
-        Inclusive upper bound for candidate resonance distances.
+        Inclusive upper bound in centimeters.
+    monotonic_interval : bool, optional
+        Whether the supplied bounds already delimit one monotonic interval.
 
     Returns
     -------
     float
-        Distance to the line resonance in centimeters.
+        First forward resonance distance in centimeters, or MISS_DISTANCE.
     """
-    r_inner = geometry.r_inner[rpacket.current_shell_id]
-    r_outer = geometry.r_outer[rpacket.current_shell_id]
-    v_inner = geometry.v_inner[rpacket.current_shell_id]
-    v_outer = geometry.v_outer[rpacket.current_shell_id]
-
+    shell_id = rpacket.current_shell_id
     radius = rpacket.r
-    velocity_gradient = geometry.velocity_gradient[rpacket.current_shell_id]
-    rest_frequency = rpacket.nu
     direction_cosine = rpacket.mu
-
-    target_projected_velocity = C_SPEED_OF_LIGHT * (
-        1.0 - nu_line / rest_frequency
+    velocity_gradient = geometry.velocity_gradient[shell_id]
+    radial_velocity = geometry.get_velocity(radius, shell_id)
+    doppler_factor = (
+        1.0 - radial_velocity * direction_cosine / C_SPEED_OF_LIGHT
     )
-    transverse_direction_fraction = 1.0 - direction_cosine**2
-    velocity_intercept = v_outer - velocity_gradient * r_outer
-    # Homology has zero intercept. Edge velocities rounded to float64 can
-    # leave a nonzero intercept that splits the repeated homologous root.
-    nearly_homologous = velocity_gradient != 0.0 and abs(
-        velocity_intercept
-    ) <= FLOAT64_ROUNDOFF_TOLERANCE * max(abs(v_inner), abs(v_outer))
-
-    # Characteristic scales for non-dimensionalization
-    shell_width = r_outer - r_inner
-    shell_velocity_difference = v_outer - v_inner
-    distance_tolerance = CLOSE_LINE_THRESHOLD * shell_width
-    if nearly_homologous:
-        # For v = m*r, solve in path distance directly. Centering on the
-        # line's lab-frame frequency avoids subtracting two large ray positions.
-        start_velocity = geometry.get_velocity(radius, rpacket.current_shell_id)
-        start_doppler_factor = (
-            1.0 - start_velocity * direction_cosine / C_SPEED_OF_LIGHT
-        )
-        line_center_lab_frequency = nu_line / start_doppler_factor
-        local_distance = (
-            C_SPEED_OF_LIGHT
-            * start_doppler_factor
-            * (rest_frequency - line_center_lab_frequency)
-            / (velocity_gradient * rest_frequency)
-        )
-        projected_position_roots = (0.0, math.nan, math.nan, math.nan)
-    elif shell_velocity_difference == 0.0:
-        impact_parameter_squared = (
-            radius * radius * transverse_direction_fraction
-        )
-        if (
-            velocity_intercept != 0.0
-            and target_projected_velocity**2 < velocity_intercept**2
-        ):
-            projected_position_squared = (
-                target_projected_velocity**2
-                * impact_parameter_squared
-                / (velocity_intercept**2 - target_projected_velocity**2)
-            )
-            scaled_projected_position = (
-                math.copysign(
-                    math.sqrt(projected_position_squared),
-                    target_projected_velocity / velocity_intercept,
-                )
-                / shell_width
-            )
-            projected_position_roots = (
-                scaled_projected_position,
-                math.nan,
-                math.nan,
-                math.nan,
-            )
-        else:
-            projected_position_roots = (
-                math.nan,
-                math.nan,
-                math.nan,
-                math.nan,
-            )
-    else:
-        # Dimensionless quantities improve quartic-solver floating-point accuracy.
-        scaled_radius = radius / shell_width
-        scaled_target_projected_velocity = (
-            target_projected_velocity / shell_velocity_difference
-        )
-        scaled_velocity_intercept = (
-            velocity_intercept / shell_velocity_difference
-        )
-        scaled_impact_parameter_squared = (
-            scaled_radius**2 * transverse_direction_fraction
-        )
-
-        # Obtain roots of the quartic polynomial
-        projected_position_roots = solve_resonance_quartic(
-            scaled_target_projected_velocity,
-            scaled_impact_parameter_squared,
-            scaled_velocity_intercept,
-        )
-
-    # A line already at the start of a monotonic interval cannot resonate
-    # again before the next projected-gradient reversal. Compare frequencies
-    # here because conversion of an absolute quartic root to path distance
-    # can turn a zero-distance root into a small positive distance.
-    if minimum_distance == 0.0:
-        interval_start_radius = radius
-        interval_start_mu = direction_cosine
-    else:
-        interval_start_radius, interval_start_mu = calculate_packet_position(
-            radius, direction_cosine, minimum_distance
-        )
-    interval_start_velocity = geometry.get_velocity(
-        interval_start_radius, rpacket.current_shell_id
+    # Subtract frequencies before division. This preserves the zero residual
+    # when the represented comoving frequency is exactly the line frequency.
+    target_velocity_change = (
+        C_SPEED_OF_LIGHT
+        * (rpacket.nu * doppler_factor - nu_line)
+        / rpacket.nu
     )
-    line_center_lab_frequency = nu_line / (
-        1.0 - interval_start_velocity * interval_start_mu / C_SPEED_OF_LIGHT
+    r_inner = geometry.r_inner[shell_id]
+    r_outer = geometry.r_outer[shell_id]
+    distance_boundary, _ = calculate_distance_boundary(
+        radius, direction_cosine, r_inner, r_outer
     )
-    line_center_roundoff = FLOAT64_EPSILON * max(
-        abs(rest_frequency), abs(line_center_lab_frequency)
-    )
-    start_line_exclusion_end = minimum_distance
-    if (
-        abs(rest_frequency - line_center_lab_frequency) <= line_center_roundoff
-        or rest_frequency
-        == nu_line
-        * get_inverse_doppler_factor(
-            interval_start_velocity, interval_start_mu, False
-        )
-    ):
-        distance_boundary, _ = calculate_distance_boundary(
-            radius, direction_cosine, r_inner, r_outer
-        )
+    interval_end = min(maximum_distance, distance_boundary)
+    if interval_end <= minimum_distance:
+        return MISS_DISTANCE
+
+    first_turn = MISS_DISTANCE
+    second_turn = MISS_DISTANCE
+    turn_count = 0
+    if not monotonic_interval:
         first_turn, second_turn, turn_count = (
             calculate_projected_gradient_zero_distances(
-                rpacket, geometry, distance_boundary
+                rpacket, geometry, interval_end
             )
         )
-        start_line_exclusion_end = distance_boundary
-        if turn_count > 0 and first_turn > minimum_distance:
-            start_line_exclusion_end = first_turn
-        elif turn_count > 1 and second_turn > minimum_distance:
-            start_line_exclusion_end = second_turn
 
-    # Convert each dimensionless signed ray coordinate to a path distance from
-    # the packet's current position: distance = shell_width *
-    # projected_position_root - radius * direction_cosine.
-    # Select the nearest root that satisfies the original, unsquared resonance equation.
-    distance = MISS_DISTANCE
-    for projected_position_root in projected_position_roots:
-        if not math.isfinite(projected_position_root):
-            continue
-        if shell_velocity_difference != 0.0 and not nearly_homologous:
-            # The quartic solver squares the resonance equation to remove a sqrt
-            # Here we reject roots that don't preserve the original sign of the unsquared equation
-            scaled_resonance_offset = (
-                projected_position_root
-                - scaled_target_projected_velocity
-            )
-            scaled_intercept_projection = (
-                scaled_velocity_intercept * projected_position_root
-            )
-            has_unphysical_sign = (
-                scaled_resonance_offset > 0.0
-                and scaled_intercept_projection > 0.0
-            ) or (
-                scaled_resonance_offset < 0.0
-                and scaled_intercept_projection < 0.0
-            )
-            if has_unphysical_sign:
-                continue
-        if nearly_homologous:
-            candidate_distance = local_distance
+    shell_width = r_outer - r_inner
+    distance_tolerance = CLOSE_LINE_THRESHOLD * shell_width
+    interval_start = minimum_distance
+    for interval_idx in range(turn_count + 1):
+        if interval_idx == 0 and turn_count > 0:
+            interval_stop = first_turn
+        elif interval_idx == 1 and turn_count > 1:
+            interval_stop = second_turn
         else:
-            candidate_distance = (
-                shell_width * projected_position_root - radius * direction_cosine
+            interval_stop = interval_end
+
+        start_residual = calculate_projected_velocity_change(
+            radius,
+            direction_cosine,
+            radial_velocity,
+            velocity_gradient,
+            interval_start,
+        ) - target_velocity_change
+        stop_residual = calculate_projected_velocity_change(
+            radius,
+            direction_cosine,
+            radial_velocity,
+            velocity_gradient,
+            interval_stop,
+        ) - target_velocity_change
+
+        # A monotonic interval has no interior root unless its endpoint
+        # residuals have opposite signs. In particular, zero at its start is
+        # the already visited resonance, not a second interaction.
+        if start_residual != 0.0 and (
+            stop_residual == 0.0
+            or (start_residual > 0.0) != (stop_residual > 0.0)
+        ):
+            lower_distance = interval_start
+            upper_distance = interval_stop
+            if stop_residual != 0.0:
+                for _ in range(64):
+                    middle_distance = 0.5 * (
+                        lower_distance + upper_distance
+                    )
+                    middle_residual = calculate_projected_velocity_change(
+                        radius,
+                        direction_cosine,
+                        radial_velocity,
+                        velocity_gradient,
+                        middle_distance,
+                    ) - target_velocity_change
+                    if middle_residual == 0.0:
+                        lower_distance = middle_distance
+                        upper_distance = middle_distance
+                        break
+                    if (middle_residual > 0.0) == (start_residual > 0.0):
+                        lower_distance = middle_distance
+                    else:
+                        upper_distance = middle_distance
+                    if upper_distance - lower_distance <= distance_tolerance:
+                        break
+            resonance_distance = 0.5 * (
+                lower_distance + upper_distance
             )
-        if (
-            candidate_distance <= minimum_distance + distance_tolerance
-            or candidate_distance <= start_line_exclusion_end
-            or candidate_distance > maximum_distance + distance_tolerance
-        ):
-            continue
+            if resonance_distance > interval_start + distance_tolerance:
+                return resonance_distance
+        interval_start = interval_stop
 
-        resonance_radius, _ = calculate_packet_position(
-            rpacket.r, rpacket.mu, candidate_distance
-        )
-        if (
-            resonance_radius < r_inner - distance_tolerance
-            or resonance_radius > r_outer + distance_tolerance
-        ):
-            continue
-
-        distance = min(distance, candidate_distance)
-
-    return distance
+    return MISS_DISTANCE
 
 
 @njit(**njit_dict_no_parallel)
@@ -458,13 +414,14 @@ def calculate_projected_gradient_zero_distances(
     distance_tolerance = CLOSE_LINE_THRESHOLD * shell_width
     impact_parameter = math.sqrt(impact_parameter_squared)
 
-    # A zero at the impact parameter only touches zero and does not reverse
-    # the monotonic line-list traversal direction.
-    if turning_radius <= impact_parameter + distance_tolerance:
+    # A zero at the impact parameter only touches zero. A radius-based
+    # tolerance could hide two well-separated turns close to the tangent.
+    if turning_radius <= impact_parameter:
         return first_distance, second_distance, zero_count
 
     turning_x_squared = (
-        turning_radius * turning_radius - impact_parameter_squared
+        (turning_radius - impact_parameter)
+        * (turning_radius + impact_parameter)
     )
     turning_x = math.sqrt(turning_x_squared)
     initial_x = r * mu

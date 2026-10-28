@@ -4,12 +4,17 @@ import numpy as np
 from numba import njit
 
 from tardis import constants as const
+from tardis.model.geometry.radial1d import NumbaRadial1DGeometry
+from tardis.opacities.opacity_state_numba import OpacityStateNumba
 from tardis.transport.frame_transformations import (
     get_doppler_factor,
     get_inverse_doppler_factor,
 )
 from tardis.transport.montecarlo import njit_dict_no_parallel
-from tardis.transport.montecarlo.packets.radiative_packet import PacketStatus
+from tardis.transport.montecarlo.packets.radiative_packet import (
+    PacketStatus,
+    RPacket,
+)
 from tardis.transport.montecarlo.utils import get_random_mu
 
 K_B = const.k_B.cgs.value
@@ -57,12 +62,12 @@ def sample_nu_free_bound(opacity_state, shell, continuum_id):
 
 @njit(**njit_dict_no_parallel)
 def bound_free_emission(
-    r_packet,
-    geometry,
-    opacity_state,
-    continuum_id,
-    enable_full_relativity,
-):
+    r_packet: RPacket,
+    geometry: NumbaRadial1DGeometry,
+    opacity_state: OpacityStateNumba,
+    continuum_id: int,
+    enable_full_relativity: bool,
+) -> None:
     """
     Bound-Free emission - set the frequency from photo-ionization
 
@@ -86,6 +91,7 @@ def bound_free_emission(
     r_packet.nu = comov_nu * inverse_doppler_factor
     current_line_id = get_current_line_id(comov_nu, opacity_state.line_list_nu)
     r_packet.next_line_id = current_line_id
+    r_packet.prev_line_id = current_line_id - 1
 
     if enable_full_relativity:
         raise NotImplementedError("Full relativity not implemented in non-homologous mode.")
@@ -152,8 +158,11 @@ def sample_nu_free_free(opacity_state, shell):
 
 @njit(**njit_dict_no_parallel)
 def free_free_emission(
-    r_packet, geometry, opacity_state, enable_full_relativity
-):
+    r_packet: RPacket,
+    geometry: NumbaRadial1DGeometry,
+    opacity_state: OpacityStateNumba,
+    enable_full_relativity: bool,
+) -> None:
     """
     Free-Free emission - set the frequency from electron-ion interaction
 
@@ -171,6 +180,7 @@ def free_free_emission(
     r_packet.nu = comov_nu * inverse_doppler_factor
     current_line_id = get_current_line_id(comov_nu, opacity_state.line_list_nu)
     r_packet.next_line_id = current_line_id
+    r_packet.prev_line_id = current_line_id - 1
 
     if enable_full_relativity:
         raise NotImplementedError("Full relativity not implemented in non-homologous mode.")
@@ -225,12 +235,12 @@ class LineInteractionType(IntEnum):
 
 @njit(**njit_dict_no_parallel)
 def line_emission(
-    r_packet,
-    emission_line_id,
-    geometry,
-    opacity_state,
-    enable_full_relativity,
-):
+    r_packet: RPacket,
+    emission_line_id: int,
+    geometry: NumbaRadial1DGeometry,
+    opacity_state: OpacityStateNumba,
+    enable_full_relativity: bool,
+) -> None:
     """
     Sets the frequency of the RPacket properly given the emission channel
 
@@ -253,6 +263,7 @@ def line_emission(
         opacity_state.line_list_nu[emission_line_id] * inverse_doppler_factor
     )
     r_packet.next_line_id = emission_line_id + 1
+    r_packet.prev_line_id = emission_line_id - 1
 
     if enable_full_relativity:
         raise NotImplementedError("Full relativity not implemented in non-homologous mode.")
